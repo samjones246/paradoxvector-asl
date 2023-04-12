@@ -3,10 +3,10 @@ LiveSplit autosplitter for [Paradox Vector](https://store.steampowered.com/app/1
 
 ## Features
 - Load removal
-
-## TODO
 - Auto start
 - Auto split points:
   - Level transition
   - Triangle collected
+  - Key collected
+  - Boss defeated
   - Run end
