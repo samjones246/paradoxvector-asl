@@ -1,94 +1,58 @@
-state("Paradox_Vector"){}
+state("Paradox_Vector")
+{
+    string15 levelName: "acknex.dll", 0x22D334;
+    bool isGameStarted: "livesplitdata.dll", 0x15004;
+    bool isGameComplete: "livesplitdata.dll", 0x15005;
+    bool isLoading: "livesplitdata.dll", 0x15006;
+    int paradoxTrianglesCollected: "livesplitdata.dll", 0x15008;
+    int keysCollected: "livesplitdata.dll", 0x1500C;
+    int bossesDefeated: "livesplitdata.dll", 0x15010;
+}
 
 startup
 {
     vars.Log = (Action<object>)((output) => print("[Paradox Vector ASL] " + output));
-}
 
-init
-{
-    List<IntPtr> allocatedAddresses = new List<IntPtr>();
-    // Signature scan to find start/end of level_load
-    var acknex = Array.Find(modules, m => m.ModuleName == "acknex.dll");
-    SignatureScanner scanner = new SignatureScanner(game, acknex.BaseAddress, acknex.ModuleMemorySize);
-    var startSig = new SigScanTarget(0, "F6 05 ?? ?? ?? ?? 40 74");
-    var endSig = new SigScanTarget(0, "C7 05 ?? ?? ?? ?? 00 00 00 00 C1");
-    IntPtr levelLoadStart = scanner.Scan(startSig);
-    IntPtr levelLoadEnd = scanner.Scan(endSig);
-    if (levelLoadStart == IntPtr.Zero || levelLoadEnd == IntPtr.Zero){
-        throw new Exception("Signature scanning failed");
-    }
-
-    byte[] origBytesStart = game.ReadBytes(levelLoadStart, 7);
-    byte[] origBytesEnd = game.ReadBytes(levelLoadEnd, 10);
-
-    // Allocate memory for output bool
-    IntPtr isLoadingPtr = game.AllocateMemory(1);
-    allocatedAddresses.Add(isLoadingPtr);
-    byte[] outputPtrBytes = BitConverter.GetBytes((UInt32)isLoadingPtr);
-
-    // Prepare payloads
-    byte[] payloadStart = new byte[] { 0xC6, 0x05 } // mov byte ptr [...
-        .Concat(outputPtrBytes) // ...isLoadingPtr] ...
-        .Concat(new byte[] { 0x01 }) // ... 1
-        .ToArray();
-
-    byte[] payloadEnd = new byte[] { 0xC6, 0x05 } // mov byte ptr [...
-        .Concat(outputPtrBytes) // ...isLoadingPtr] ...
-        .Concat(new byte[] { 0x00 }) // ... 1
-        .ToArray();
-
-    // Allocate memory for payloads
-    IntPtr hookStart = game.AllocateMemory(payloadStart.Length + 5);
-    IntPtr hookEnd = game.AllocateMemory(payloadEnd.Length + 5);
-    allocatedAddresses.Add(hookStart);
-    allocatedAddresses.Add(hookEnd);
-
-    // Prepare cleanup
-    Action cleanup = () => {
-        foreach (IntPtr address in allocatedAddresses)
-        {
-            game.FreeMemory(address);
-        }
-        game.Suspend();
-        try {
-            game.WriteBytes(levelLoadStart, origBytesStart);
-            game.WriteBytes(levelLoadEnd, origBytesEnd);
-        } 
-        catch { throw; }
-        finally { game.Resume(); }
+    Dictionary<string, string> Levels = new Dictionary<string, string>() {
+        {"Outline_001.wmb", "Dungeon 1"},
+        {"Outline_002.wmb", "Dungeon 2"},
+        {"Outline_003.wmb", "Dungeon 3"},
+        {"Outline_004.wmb", "Dungeon 4"},
+        {"Outline_005.wmb", "Dungeon 5"},
+        {"Outline_006.wmb", "Dungeon 6"},
+        {"Outline_007.wmb", "Dungeon 7"},
+        {"Outline_008.wmb", "Dungeon 8"},
+        {"Outline_009.wmb", "Dungeon 9"},
+        {"Outline_010.wmb", "Dungeon 10"},
+        {"Outline_011.wmb", "Dungeon 11"},
+        {"Outline_012.wmb", "Dungeon 12"},
+        {"Outline_013.wmb", "Dungeon 13"},
+        {"Outline_014.wmb", "Dungeon 14"},
+        {"Outline_015.wmb", "Dungeon 15"},
+        {"Outline_016.wmb", "Dungeon 16"},
+        {"Outline_017.wmb", "Dungeon 17"},
+        {"Outline_018.wmb", "Dungeon 18"},
+        {"Outline_019.wmb", "Dungeon 19"},
+        {"Outline_020.wmb", "Dungeon 20"},
     };
-    vars.cleanup = cleanup;
 
-    // Write detours
-    game.Suspend();
-    try {
-        IntPtr gateStart = game.WriteDetour(levelLoadStart, 7, hookStart);
-        allocatedAddresses.Add(gateStart);
-        IntPtr gateEnd = game.WriteDetour(levelLoadEnd, 10, hookEnd);
-        allocatedAddresses.Add(gateEnd);
-        game.WriteBytes(hookStart, payloadStart);
-        game.WriteJumpInstruction(hookStart + payloadStart.Length, gateStart);
-        game.WriteBytes(hookEnd, payloadEnd);
-        game.WriteJumpInstruction(hookEnd + payloadEnd.Length, gateEnd);
-    } catch {
-        cleanup();
-        throw;
-    } finally {
-        game.Resume();
-    }
+    settings.Add("split_triangle", false, "Split on collecting a paradox triangle");
+    settings.Add("split_key", false, "Split on collecting key");
+    settings.Add("split_boss", false, "Split on defeating a boss");
+    settings.Add("split_enter", false, "Split on enter level");
+    settings.Add("split_exit", false, "Split on exit level");
 
-    // To access a watcher, each one must be given a name.
-    vars.Watchers = new MemoryWatcherList
+    foreach (string filename in Levels.Keys)
     {
-        new MemoryWatcher<bool>(isLoadingPtr) { Name = "isLoading" }
-    };
+        string description = Levels[filename];
+        settings.Add("split_enter_"+filename, true, description, "split_enter");
+        settings.Add("split_exit_"+filename, true, description, "split_exit");
+    }
 }
 
-update
+start
 {
-    vars.Watchers.UpdateAll(game);
-    current.isLoading = vars.Watchers["isLoading"].Current;
+    return current.isGameStarted && !old.isGameStarted;
 }
 
 isLoading
@@ -96,7 +60,30 @@ isLoading
     return current.isLoading;
 }
 
-shutdown
+split
 {
-    vars.cleanup();
+    if (current.levelName != old.levelName) {
+        vars.Log("Level Changed: " + old.levelName + " -> " + current.levelName);
+        return settings["split_exit_"+old.levelName] || settings["split_enter_"+current.levelName];
+    }
+
+    if(current.paradoxTrianglesCollected > old.paradoxTrianglesCollected) {
+        vars.Log("Paradox Triangles: " + old.paradoxTrianglesCollected + " -> " + current.paradoxTrianglesCollected);
+        return settings["split_triangle"];
+    }
+
+    if(current.keysCollected > old.keysCollected) {
+        vars.Log("Keys: " + old.keysCollected + " -> " + current.keysCollected);
+        return settings["split_key"];
+    }
+
+    if(current.bossesDefeated > old.bossesDefeated) {
+        vars.Log("Bosses: " + old.bossesDefeated + " -> " + current.bossesDefeated);
+        return settings["split_boss"];
+    }
+
+    if(current.isGameComplete && !old.isGameComplete) {
+        vars.Log("Game Complete");
+        return true;
+    }
 }
