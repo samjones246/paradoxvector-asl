@@ -55,6 +55,14 @@ start
     return current.isGameStarted && !old.isGameStarted;
 }
 
+onStart
+{
+    vars.lastTriangles = current.paradoxTrianglesCollected;
+    vars.lastKeys = current.keysCollected;
+    vars.lastBosses = current.bossesDefeated;
+    vars.SplitsDone = new List<string>();
+}
+
 isLoading
 {
     return current.isLoading;
@@ -62,22 +70,33 @@ isLoading
 
 split
 {
+    var SplitEnabled = (Func<string, bool>)((splitName) => {
+        if (settings[splitName] && !vars.SplitsDone.Contains(splitName)) {
+            vars.SplitsDone.Add(splitName);
+            return true;
+        } else {
+            return false;
+        }
+    });
     if (current.levelName != old.levelName) {
         vars.Log("Level Changed: " + old.levelName + " -> " + current.levelName);
         return settings["split_exit_"+old.levelName] || settings["split_enter_"+current.levelName];
     }
 
-    if(current.paradoxTrianglesCollected > old.paradoxTrianglesCollected) {
+    if(current.paradoxTrianglesCollected == vars.lastTriangles + 1) {
+        vars.lastTriangles += 1;
         vars.Log("Paradox Triangles: " + old.paradoxTrianglesCollected + " -> " + current.paradoxTrianglesCollected);
         return settings["split_triangle"];
     }
 
-    if(current.keysCollected > old.keysCollected) {
+    if(current.keysCollected == vars.lastKeys + 1) {
+        vars.lastKeys += 1;
         vars.Log("Keys: " + old.keysCollected + " -> " + current.keysCollected);
         return settings["split_key"];
     }
 
-    if(current.bossesDefeated > old.bossesDefeated) {
+    if(current.bossesDefeated == vars.lastBosses + 1) {
+        vars.lastBosses += 1;
         vars.Log("Bosses: " + old.bossesDefeated + " -> " + current.bossesDefeated);
         return settings["split_boss"];
     }
