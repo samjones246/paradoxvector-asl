@@ -1,12 +1,6 @@
 state("Paradox_Vector")
 {
     string15 levelName: "acknex.dll", 0x22D334;
-    bool isGameStarted: "livesplitdata.dll", 0x15004;
-    bool isGameComplete: "livesplitdata.dll", 0x15005;
-    bool isLoading: "livesplitdata.dll", 0x15006;
-    int paradoxTrianglesCollected: "livesplitdata.dll", 0x15008;
-    int keysCollected: "livesplitdata.dll", 0x1500C;
-    int bossesDefeated: "livesplitdata.dll", 0x15010;
 }
 
 startup
@@ -23,10 +17,10 @@ startup
         {"Outline_007.wmb", "Dungeon 7"},
         {"Outline_008.wmb", "Dungeon 8"},
         {"Outline_009.wmb", "Dungeon 9"},
-        {"Outline_010.wmb", "Dungeon 10"},
-        {"Outline_011.wmb", "Dungeon 11"},
-        {"Outline_012.wmb", "Dungeon 12"},
-        {"Outline_013.wmb", "Dungeon 13"},
+        {"Outline_010.wmb", "Ancient One Arena"},
+        {"Outline_011.wmb", "Caves 1"},
+        {"Outline_012.wmb", "Caves 2"},
+        {"Outline_013.wmb", "Boss 2 Arena"},
         {"Outline_014.wmb", "Dungeon 14"},
         {"Outline_015.wmb", "Dungeon 15"},
         {"Outline_016.wmb", "Dungeon 16"},
@@ -50,9 +44,38 @@ startup
     }
 }
 
-start
+init
 {
-    return current.isGameStarted && !old.isGameStarted;
+    ProcessModuleWow64Safe module = Array.Find(modules, (m) => m.ModuleName == "livesplitdata.dll");
+    if (module == null) {
+        throw new Exception("Could not locate livesplitdata.dll.");
+    }
+    var target = new SigScanTarget(0, "44 99 FC 01");
+    var scanner = new SignatureScanner(game, module.BaseAddress, module.ModuleMemorySize);
+    IntPtr data = scanner.Scan(target);
+    if (data == IntPtr.Zero) {
+        throw new Exception("Could not locate data struct.");
+    }
+    vars.Watchers = new MemoryWatcherList
+    {
+        new MemoryWatcher<bool>(data + 0x04) { Name = "isGameStarted" },
+        new MemoryWatcher<bool>(data + 0x05) { Name = "isGameComplete" },
+        new MemoryWatcher<bool>(data + 0x06) { Name = "isLoading" },
+        new MemoryWatcher<int>(data + 0x08) { Name = "paradoxTrianglesCollected" },
+        new MemoryWatcher<int>(data + 0x0C) { Name = "keysCollected" },
+        new MemoryWatcher<int>(data + 0x10) { Name = "bossesDefeated" },
+    };
+}
+
+update
+{
+    vars.Watchers.UpdateAll(game);
+    current.isGameStarted = vars.Watchers["isGameStarted"].Current;
+    current.isGameComplete = vars.Watchers["isGameComplete"].Current;
+    current.isLoading = vars.Watchers["isLoading"].Current;
+    current.paradoxTrianglesCollected = vars.Watchers["paradoxTrianglesCollected"].Current;
+    current.keysCollected = vars.Watchers["keysCollected"].Current;
+    current.bossesDefeated = vars.Watchers["bossesDefeated"].Current;
 }
 
 onStart
@@ -61,6 +84,11 @@ onStart
     vars.lastKeys = current.keysCollected;
     vars.lastBosses = current.bossesDefeated;
     vars.SplitsDone = new List<string>();
+}
+
+start
+{
+    return current.isGameStarted && !old.isGameStarted;
 }
 
 isLoading
@@ -80,7 +108,9 @@ split
     });
     if (current.levelName != old.levelName) {
         vars.Log("Level Changed: " + old.levelName + " -> " + current.levelName);
-        return settings["split_exit_"+old.levelName] || settings["split_enter_"+current.levelName];
+        if (SplitEnabled("split_enter_"+current.levelName) || SplitEnabled("split_exit_"+old.levelName)) {
+            return true;
+        }
     }
 
     if(current.paradoxTrianglesCollected == vars.lastTriangles + 1) {
